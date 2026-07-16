@@ -378,6 +378,34 @@ func buildMCPServer(engine *search.Engine) *mcp.Server {
 		})
 	}
 
+	// Register each flow doc as an MCP prompt so clients like opencode
+	// auto-create /slash commands with autocomplete from prompts/list.
+	_ = fs.WalkDir(docsFS, "docs", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
+			return nil
+		}
+		name := strings.TrimSuffix(strings.TrimPrefix(path, "docs/"), ".md")
+		alias := aliasForDoc(name)
+		content, _ := fs.ReadFile(docsFS, path)
+		desc := extractDescription(string(content))
+		server.AddPrompt(&mcp.Prompt{
+			Name:        alias,
+			Description: desc,
+		}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+			return &mcp.GetPromptResult{
+				Messages: []*mcp.PromptMessage{{
+					Role:    "user",
+					Content: &mcp.TextContent{Text: "Call kb_get with name=\"" + alias + "\" and follow the instructions in the returned document."},
+				}},
+			}, nil
+		})
+		return nil
+	})
+
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		log.Fatal(err)
+	}
+
 	return server
 }
 
